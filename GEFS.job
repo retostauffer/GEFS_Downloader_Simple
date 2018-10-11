@@ -1,0 +1,9 @@
+#!/bin/bash
+#$ -cwd
+#$ -M Reto.Stauffer@uibk.ac.at
+#$ -N _DELTA
+#$ -m ae
+
+# - Starting the job here
+venv/bin/python GEFS.py -d ${1} -r ${2}
+

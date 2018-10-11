@@ -10,7 +10,7 @@
 # -------------------------------------------------------------------
 # - EDITORIAL:   2018-10-11, RS: Created file on thinkreto.
 # -------------------------------------------------------------------
-# - L@ST MODIFIED: 2018-10-11 22:00 on marvin
+# - L@ST MODIFIED: 2018-10-11 22:06 on marvin
 # -------------------------------------------------------------------
 
 # -------------------------------------------------------------------
@@ -278,7 +278,7 @@ if __name__ == "__main__":
                                   "%Y-%m-%d %H:%M")
 
     # Steps/members. The +1 is required to get the required sequence!
-    steps   = np.arange(6, 144+1, 3, dtype = int)
+    steps   = np.arange(6, 300+1, 3, dtype = int)
     members = np.arange(0,  20+1, 1, dtype = int)
 
     bar()
