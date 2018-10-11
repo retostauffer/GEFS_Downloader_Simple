@@ -10,7 +10,7 @@
 # -------------------------------------------------------------------
 # - EDITORIAL:   2018-10-11, RS: Created file on thinkreto.
 # -------------------------------------------------------------------
-# - L@ST MODIFIED: 2018-10-11 22:57 on marvin
+# - L@ST MODIFIED: 2018-10-11 23:03 on marvin
 # -------------------------------------------------------------------
 
 # -------------------------------------------------------------------
@@ -354,9 +354,6 @@ if __name__ == "__main__":
                 else:
                     print("[!] Problem with subset, do not delete global grib2 file.")
 
-
-            print check
-            sys.exit(3)
 
             # Else post-processing the data
             bar()
