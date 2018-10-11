@@ -10,7 +10,7 @@
 # -------------------------------------------------------------------
 # - EDITORIAL:   2018-10-11, RS: Created file on thinkreto.
 # -------------------------------------------------------------------
-# - L@ST MODIFIED: 2018-10-11 22:06 on marvin
+# - L@ST MODIFIED: 2018-10-11 22:57 on marvin
 # -------------------------------------------------------------------
 
 # -------------------------------------------------------------------
@@ -45,7 +45,8 @@ def get_file_names(filedir, baseurl, date, mem, step):
     Returns
     -------
     Returns a dict with three entries for the indexfile ("idx"), the grib file ("grib"),
-    and the local file name ("local"). 
+    and the local file name ("local"), plus the file name of the local subset. Only
+    used if subset is defined and wgrib2 is available (see main script).
     """
     import os
     import datetime as dt
@@ -60,9 +61,11 @@ def get_file_names(filedir, baseurl, date, mem, step):
                             "c" if mem == 0 else "p", mem, date.strftime("%H"),
                             "{:02d}".format(step) if step < 100 else "{:03d}".format(step)))
     local    = date.strftime("GEFS_%Y%m%d_%H00") + "_{:02d}_f{:03d}.grb2".format(mem, step)
-    return {"grib"  : gribfile,
-            "idx"   : "{:s}.idx".format(gribfile), 
-            "local" : os.path.join(filedir, local)}
+    subset   = date.strftime("GEFS_%Y%m%d_%H00") + "_{:02d}_f{:03d}_subset.grb2".format(mem, step)
+    return {"grib"   : gribfile,
+            "idx"    : "{:s}.idx".format(gribfile), 
+            "local"  : os.path.join(filedir, local),
+            "subset" : os.path.join(filedir, subset)}
 
 
 # -------------------------------------------------------------------
@@ -240,6 +243,9 @@ if __name__ == "__main__":
     # Config
     outdir = "data"
     baseurl = "http://nomads.ncep.noaa.gov/pub/data/nccf/com/gens/prod/gefs.%Y%m%d/%H/pgrb2/"
+    # Subset (requires wgrib2), can also be None.
+    # Else a dict with N/S/E/W in degrees (0-360!)
+    subset = {"W": 262, "E": 293, "S": 20, "N": 46}
 
     # List of the required parameters. Check the index file
     # to see the available parameters. Always <param>:<level> where
@@ -254,6 +260,8 @@ if __name__ == "__main__":
     import argparse, sys
     import datetime as dt
     import numpy as np
+    import distutils.spawn
+    import subprocess as sub
 
     # Parsing input args
     parser = argparse.ArgumentParser(description="Download some GEFS data")
@@ -278,7 +286,7 @@ if __name__ == "__main__":
                                   "%Y-%m-%d %H:%M")
 
     # Steps/members. The +1 is required to get the required sequence!
-    steps   = np.arange(6, 300+1, 3, dtype = int)
+    steps   = np.arange(6, 300+1, 6, dtype = int)
     members = np.arange(0,  20+1, 1, dtype = int)
 
     bar()
@@ -305,14 +313,20 @@ if __name__ == "__main__":
 
             # Getting file names
             files = get_file_names(filedir, baseurl, date, mem, step)
+            if os.path.isfile(files["subset"]):
+                print("- Local subset exists, skip")
+                bar()
+                continue
             if os.path.isfile(files["local"]):
-                print("- Local file exists, skip");
+                print("- Local file exists, skip")
                 bar()
                 continue
 
+
             # Else start download
-            print "- Grib file: {:s}\n- Index file: {:s}\n- Local file: {:s}".format(
-                    files["grib"], files["idx"], files["local"])
+            print ("- Grib file: {:s}\n- Index file: {:s}\n" + \
+                  "- Local file: {:s}\n- Subset file: {:s}").format(
+                    files["grib"], files["idx"], files["local"], files["subset"])
 
             # Read/parse index file (if possible)
             required = parse_index_file(files["idx"], params)
@@ -323,6 +337,26 @@ if __name__ == "__main__":
 
             # Downloading the data
             download_range(files["grib"], files["local"], required)
+
+            # If wgrib2 exists: crate subset (small_grib)
+            check = distutils.spawn.find_executable("wgrib2")
+            if not check is None and not subset is None:
+                WE  = "{:.2f}:{:.2f}".format(subset["W"], subset["E"])
+                SN  = "{:.2f}:{:.2f}".format(subset["S"], subset["N"])
+                cmd = ["wgrib2", files["local"], "-small_grib", WE, SN, files["subset"]] 
+                print("- Subsetting: {:s}".format(" ".join(cmd)))
+                p = sub.Popen(cmd, stdout = sub.PIPE, stderr = sub.PIPE) 
+                out,err = p.communicate()
+
+                if p.returncode == 0:
+                    print("- Subset created, delete global file")
+                    os.remove(files["local"])
+                else:
+                    print("[!] Problem with subset, do not delete global grib2 file.")
+
+
+            print check
+            sys.exit(3)
 
             # Else post-processing the data
             bar()
