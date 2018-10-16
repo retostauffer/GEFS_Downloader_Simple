@@ -10,7 +10,7 @@
 # -------------------------------------------------------------------
 # - EDITORIAL:   2018-10-12, RS: Created file on thinkreto.
 # -------------------------------------------------------------------
-# - L@ST MODIFIED: 2018-10-12 08:20 on marvin
+# - L@ST MODIFIED: 2018-10-16 13:28 on marvin
 # -------------------------------------------------------------------
 
 set -u
@@ -51,7 +51,7 @@ for dir in ${dirs[@]}; do
         # and ensemble member, we cannot handle multiple ensemble
         # members with wgrib2->netCDF).
         out=`printf "%s/GEFS_%s_%02d.nc" ${prepdir} ${datetime} $mem`
-        wgrib2 $tmpgrib -netcdf $out
+        wgrib2 $tmpgrib -netcdf $out &>/dev/null
 
         # Remove temporary file
         if [ -f $tmpgrib ] ; then rm $tmpgrib; fi 

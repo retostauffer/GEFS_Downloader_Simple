@@ -2,3 +2,6 @@
 
 # Ignore output folder
 data
+venv
+prepared
+ASCII
