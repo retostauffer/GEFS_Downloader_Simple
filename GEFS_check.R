@@ -7,7 +7,7 @@
 # -------------------------------------------------------------------
 # - EDITORIAL:   2018-10-16, RS: Created file on thinkreto.
 # -------------------------------------------------------------------
-# - L@ST MODIFIED: 2018-10-18 13:17 on marvin
+# - L@ST MODIFIED: 2018-10-18 13:21 on marvin
 # -------------------------------------------------------------------
 
     rm(list = ls())
@@ -15,6 +15,7 @@
 
     param   <- "fg10m"
     param <- "ff100m"
+    param <- "ff10m"
 
     # Station list
     #library("maps"); library("sp")
@@ -62,9 +63,11 @@
     dates <- extract_date(files)
 
     # Reading the data
+    library("zoo")
     data <- list()
     for ( i in seq_along(dates) ) {
         file <- files[grep(strftime(dates[i], "%Y%m%d%H%M"), files)]
+        cat(sprintf("Reading %s\n", file))
         hash <- strftime(dates[i], "%Y%m%d%H%M")
         if ( length(file) != 1 ) next
         # Reading data and convert to time series object
@@ -84,6 +87,7 @@
     
         # Looping over the dates and make plots
         ylim <- c(0, max(sapply(data, max))) * c(1, 1.03)
+        print(ylim)
         library("zoo")
         for ( i in seq_along(dates) ) {
             # Loading data
