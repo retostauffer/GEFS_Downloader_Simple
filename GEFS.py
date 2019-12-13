@@ -20,7 +20,7 @@ def bar():
 
     Simply prints a line of "-" on stdout.
     """
-    print("{:s}".format("".join(["-"]*70)))
+    log.info("{:s}".format("".join(["-"]*70)))
 
 # -------------------------------------------------------------------
 # -------------------------------------------------------------------
@@ -50,13 +50,18 @@ def get_file_names(filedir, baseurl, date, mem, step):
     """
     import os
     import datetime as dt
-    if not isinstance(mem, int):
+    from numpy import int64
+    if not isinstance(mem, int) and not isinstance(mem, int64):
         raise ValueError("member has to be an integer (get_index_file function)")
-    if not isinstance(step, int):
+    if not isinstance(step, int) and not isinstance(step, int64):
         raise ValueError("step has to be an integer (get_index_file function)")
 
     # Create URL
-    gribfile = os.path.join(date.strftime(baseurl),
+    yyyy = int(date.strftime("%Y"))
+    mm   = int(date.strftime("%m"))
+    dd   = int(date.strftime("%d"))
+    HH   = int(date.strftime("%H"))
+    gribfile = os.path.join(baseurl.format(yyyy, mm, dd, HH),
                             "ge{:s}{:02d}.t{:s}z.pgrb2f{:s}".format(
                             "c" if mem == 0 else "p", mem, date.strftime("%H"),
                             "{:02d}".format(step) if step < 100 else "{:03d}".format(step)))
@@ -176,12 +181,17 @@ def parse_index_file(idxfile, params):
     Things ... (tdb)
     """
 
-    import urllib2
+    if sys.version_info.major < 3:
+        import urllib2 as urllib
+    else:
+        import urllib.request as urllib
+
     try:
-        req  = urllib2.Request(idxfile)
-        data = urllib2.urlopen(req).read().split("\n")
+        req  = urllib.Request(idxfile)
+        data = urllib.urlopen(req).read().decode("utf-8").split("\n")
     except Exception as e:
-        print("[!] Problems reading index file\n    {:s}\n    ... return None".format(idxfile))
+        log.warning("[!] Problems reading index file\n    {:s}\n    ... return None".format(idxfile))
+        sys.exit(3)
         return None
 
     # List to store the required index message information
@@ -207,10 +217,10 @@ def parse_index_file(idxfile, params):
             idx_entries[k].add_end_byte(None)
         else:
             idx_entries[k].add_end_byte(idx_entries[k+1].start_byte() - 1)
-    #    print(idx_entries[k])
 
     # Go trough the entries to find the messages we request for.
     res = []
+    params = [val for key,val in params.items()]
     for x in idx_entries:
         if x.key() in params: res.append(x.range())
         
@@ -219,20 +229,84 @@ def parse_index_file(idxfile, params):
 
 # -------------------------------------------------------------------
 def download_range(grib, local, range):
-    import urllib2
-    print("- Downloading data for {:s}".format(local))
+    log.info("Downloading data for {:s}".format(local))
+    import sys
+    if sys.version_info.major < 3:
+        import urllib2 as urllib
+    else:
+        import urllib.request as urllib
+
     try:
-        req = urllib2.Request(grib)
+        req = urllib.Request(grib)
         req.add_header("Range", "bytes={:s}".format(",".join(range)))
-        resp = urllib2.urlopen(req)
+        resp = urllib.urlopen(req)
     except:
-        print("[!] Problems downloading the data.\n    Return None, trying to continue ...")
-        import sys
+        log.error("[!] Problems downloading the data.\n    Return None, trying to continue ...")
         sys.exit(3)
         return None
 
     with open(local, "wb") as fid: fid.write(resp.read())
     return True
+
+# -------------------------------------------------------------------
+# Read config file
+# -------------------------------------------------------------------
+def get_config():
+
+    import os
+    import sys
+    import socket
+    if sys.version_info.major < 3:
+        from ConfigParser import ConfigParser
+    else:
+        from configparser import ConfigParser
+    CNF = ConfigParser()
+
+    # Hostname specific config?
+    host = socket.gethostname()
+    if os.path.isfile("{:s}_config.conf".format(host)):
+        log.info("Reading custom config file for \"{:s}\"".format(host))
+        CNF.read("{:s}_config.conf".format(host))
+    else:
+        log.info("Reading default config.conf file")
+        if not os.path.isfile("config.conf"):
+            raise Exception("Cannot find config file config.conf")
+        CNF.read("config.conf")
+
+    # Output directory
+    outdir = CNF.get("main", "outdir")
+    # Base url
+    url    = CNF.get("main", "url")
+
+    # Check if the user requests a subset.
+    subset = CNF.getboolean("subset", "use")
+    if subset:
+        subset = {"W": CNF.getfloat("subset", "W"), "E": CNF.getfloat("subset", "E"),
+                  "S": CNF.getfloat("subset", "S"), "N": CNF.getfloat("subset", "N")}
+    else:
+        subset = None
+
+    # read parameter config
+    # [param xxx]
+    # name  = ...
+    # level = ...
+    # xxx: identifier, currently not really used except to set up the dictionary (char)
+    # name: name of the varaible according to the grib index file (char)
+    # level: level of the variable according to the grib index file (char)
+    from re import match
+    sections = CNF.sections()
+    params = dict()
+    for sec in sections:
+        mtch = match("^param\s+(.*)$", sec)
+        if not mtch: continue
+        # Checking items
+        items = dict()
+        for rec in CNF.items(sec): items[rec[0]] = rec[1]
+        if not "name" in items.keys() or not "level" in items.keys(): continue
+        params[mtch.group(1)] = "{:s}:{:s}".format(items["name"], items["level"])
+        log.info("Found parameter specification for {:s}".format(params[mtch.group(1)]))
+
+    return [outdir, url, subset, params]
 
 
 # -------------------------------------------------------------------
@@ -240,20 +314,21 @@ def download_range(grib, local, range):
 # -------------------------------------------------------------------
 if __name__ == "__main__":
 
-    # Config
-    outdir = "data"
-    baseurl = "http://nomads.ncep.noaa.gov/pub/data/nccf/com/gens/prod/gefs.%Y%m%d/%H/pgrb2/"
-    # Subset (requires wgrib2), can also be None.
-    # Else a dict with N/S/E/W in degrees (0-360!)
-    subset = {"W": 262, "E": 293, "S": 20, "N": 46}
+    import logging as log
+    log.basicConfig(level = log.DEBUG)
 
-    # List of the required parameters. Check the index file
-    # to see the available parameters. Always <param>:<level> where
-    # <param> and <level> are the strings as in the grib index file.
-    params = ["GUST:surface",
-              "UGRD:10 m above ground",  "VGRD:10 m above ground",
-              "UGRD:80 m above ground",  "VGRD:80 m above ground",
-              "UGRD:100 m above ground", "VGRD:100 m above ground"]
+    ##### Config
+    ####outdir = "data"
+    ####baseurl = "http://nomads.ncep.noaa.gov/pub/data/nccf/com/gens/prod/gefs.%Y%m%d/%H/pgrb2/"
+
+
+    ###### List of the required parameters. Check the index file
+    ###### to see the available parameters. Always <param>:<level> where
+    ###### <param> and <level> are the strings as in the grib index file.
+    #####params = ["GUST:surface",
+    #####          "UGRD:10 m above ground",  "VGRD:10 m above ground",
+    #####          "UGRD:80 m above ground",  "VGRD:80 m above ground",
+    #####          "UGRD:100 m above ground", "VGRD:100 m above ground"]
 
     # Import some required packages
     import sys, os, re
@@ -289,19 +364,21 @@ if __name__ == "__main__":
     steps   = np.arange(6, 300+1, 6, dtype = int)
     members = np.arange(0,  20+1, 1, dtype = int)
 
+    # Reading config
+    outdir, baseurl, subset, params = get_config()
+
     bar()
-    print("Downloading steps:\n  {:s}".format(", ".join(["{:d}".format(x) for x in steps])))
-    print("Downloading members:\n  {:s}".format(", ".join(["{:d}".format(x) for x in members])))
-    print("For date/model initialization\n  {:s}".format(date.strftime("%Y-%m-%d %H:%M UTC")))
-    print("Base url:\n  {:s}".format(date.strftime(baseurl)))
-    bar()
+    log.info("Downloading steps:\n  {:s}".format(", ".join(["{:d}".format(x) for x in steps])))
+    log.info("Downloading members:\n  {:s}".format(", ".join(["{:d}".format(x) for x in members])))
+    log.info("For date/model initialization\n  {:s}".format(date.strftime("%Y-%m-%d %H:%M UTC")))
+    log.info("Base url:\n  {:s}".format(date.strftime(baseurl)))
 
     # Looping over the different members first
     for mem in members:
         # Looping over forecast lead times
         for step in steps:
             bar()
-            print("Processing +{:03d}h forecast, member {:02d}".format(step, mem))
+            log.info("Processing +{:03d}h forecast, member {:02d}".format(step, mem))
 
             # Specify and create output directory if necessary
             filedir = "{:s}/{:s}".format(outdir, date.strftime("%Y%m%d%H%M"))
@@ -324,9 +401,10 @@ if __name__ == "__main__":
 
 
             # Else start download
-            print ("- Grib file: {:s}\n- Index file: {:s}\n" + \
-                  "- Local file: {:s}\n- Subset file: {:s}").format(
-                    files["grib"], files["idx"], files["local"], files["subset"])
+            log.debug("- Grib file:   {:s}".format(files["grib"]))
+            log.debug("- Index file:  {:s}".format(files["idx"]))
+            log.debug("- Local file:  {:s}".format(files["local"]))
+            log.debug("- Subset file: {:s}".format(files["subset"]))
 
             # Read/parse index file (if possible)
             required = parse_index_file(files["idx"], params)
@@ -343,19 +421,18 @@ if __name__ == "__main__":
             if not check is None and not subset is None:
                 WE  = "{:.2f}:{:.2f}".format(subset["W"], subset["E"])
                 SN  = "{:.2f}:{:.2f}".format(subset["S"], subset["N"])
-                cmd = ["wgrib2", files["local"], "-small_grib", WE, SN, files["subset"]] 
-                print("- Subsetting: {:s}".format(" ".join(cmd)))
+                cmd = ["wgrib2", "-g2clib", "0", files["local"], "-small_grib", WE, SN, files["subset"]] 
+                log.info("- Subsetting: {:s}".format(" ".join(cmd)))
                 p = sub.Popen(cmd, stdout = sub.PIPE, stderr = sub.PIPE) 
                 out,err = p.communicate()
 
                 if p.returncode == 0:
-                    print("- Subset created, delete global file")
+                    log.info("- Subset created, delete global file")
                     os.remove(files["local"])
                 else:
-                    print("[!] Problem with subset, do not delete global grib2 file.")
+                    log.info("[!] Problem with subset, do not delete global grib2 file.")
 
 
-            # Else post-processing the data
             bar()
 
 
